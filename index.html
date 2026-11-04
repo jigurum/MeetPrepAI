@@ -1,0 +1,986 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MeetPrep AI - 회의 준비 지원</title>
+    <meta name="description" content="회의 자료에 포함된 전문용어와 배경지식을 입문자·실무자 맞춤형으로 분석하고 Google Sheets에 동기화하는 회의 준비 지원 서비스" />
+    <meta property="og:title" content="MeetPrep AI - 회의 준비 지원" />
+    <meta property="og:description" content="회의 자료에 포함된 전문용어와 배경지식을 입문자·실무자 맞춤형으로 분석하고 Google Sheets에 동기화하는 회의 준비 지원 서비스" />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              brand: {
+                50: '#eff6ff',
+                100: '#dbeafe',
+                500: '#3b82f6',
+                600: '#2563eb',
+                700: '#1d4ed8',
+                900: '#1e3a8a',
+              }
+            }
+          }
+        }
+      }
+    </script>
+
+    <!-- Lucide Icons CDN -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- JSZip CDN for client-side PPTX parsing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+    <!-- Mammoth CDN for client-side DOCX text extraction -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+
+    <style>
+      @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+      body {
+        font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
+      }
+      .line-clamp-2 {
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      .line-clamp-3 {
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      @media print {
+        header, .no-print { display: none !important; }
+        main { padding: 0 !important; }
+        .shadow-sm, .shadow-md, .shadow-2xl { box-shadow: none !important; }
+        body { background: white !important; }
+      }
+    </style>
+  </head>
+  <body class="bg-slate-50 text-slate-900 min-h-screen flex flex-col selection:bg-blue-500/20">
+
+    <!-- Sticky Navigation Header -->
+    <header class="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-slate-200">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div class="flex items-center justify-between h-16">
+          <!-- Logo & Brand -->
+          <div class="flex items-center gap-3 cursor-pointer" id="nav-logo">
+            <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-700 via-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-sm shadow-blue-500/20">
+              <i data-lucide="sparkles" class="w-5 h-5 text-white"></i>
+            </div>
+            <div>
+              <div class="flex items-center gap-2">
+                <span class="font-bold text-lg tracking-tight text-slate-900">MeetPrep AI</span>
+                <span class="text-[11px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                  회의 준비 도우미
+                </span>
+              </div>
+              <p class="text-xs text-slate-500 hidden sm:block">
+                전문용어 & 배경지식 맞춤 분석기
+              </p>
+            </div>
+          </div>
+
+          <!-- Navigation Tabs -->
+          <nav class="flex items-center gap-1 sm:gap-2">
+            <button
+              id="tab-btn-input"
+              type="button"
+              class="nav-tab-btn flex items-center gap-2 px-3.5 py-2 text-sm font-semibold rounded-lg bg-slate-100 text-slate-900 transition-colors"
+            >
+              <i data-lucide="file-text" class="w-4 h-4 text-blue-600"></i>
+              <span>자료 분석</span>
+            </button>
+
+            <button
+              id="tab-btn-result"
+              type="button"
+              class="nav-tab-btn hidden flex items-center gap-2 px-3.5 py-2 text-sm font-medium rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors"
+            >
+              <i data-lucide="sparkles" class="w-4 h-4 text-blue-600"></i>
+              <span>분석 결과</span>
+            </button>
+
+            <button
+              id="tab-btn-history"
+              type="button"
+              class="nav-tab-btn flex items-center gap-2 px-3.5 py-2 text-sm font-medium rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors"
+            >
+              <i data-lucide="history" class="w-4 h-4 text-slate-500"></i>
+              <span>분석 기록</span>
+            </button>
+          </nav>
+
+          <!-- Right Tools: Bookmarks & Google Sheets Settings -->
+          <div class="flex items-center gap-2">
+            <!-- Bookmarks button -->
+            <button
+              id="btn-open-bookmarks"
+              type="button"
+              class="relative p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors"
+              title="북마크한 전문용어 모아보기"
+            >
+              <i data-lucide="bookmark-check" class="w-5 h-5 text-amber-500"></i>
+              <span id="badge-bookmarks-count" class="hidden absolute -top-1 -right-1 px-1.5 py-0.2 bg-amber-500 text-white text-[10px] font-bold rounded-full min-w-4 text-center">0</span>
+            </button>
+
+            <!-- Google Sheets Status & Settings -->
+            <button
+              id="btn-open-sheets"
+              type="button"
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100 transition-colors"
+            >
+              <i data-lucide="database" class="w-3.5 h-3.5"></i>
+              <span class="hidden md:inline">Google Sheets</span>
+              <span id="sheets-status-icon">
+                <i data-lucide="alert-circle" class="w-3.5 h-3.5 text-slate-400"></i>
+              </span>
+              <i data-lucide="settings" class="w-3.5 h-3.5 ml-0.5 opacity-70"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="flex-1 pb-16">
+      
+      <!-- ========================================== -->
+      <!-- SCREEN 1: 자료 입력 (Input Screen)        -->
+      <!-- ========================================== -->
+      <section id="screen-input" class="max-w-4xl mx-auto py-8 px-4 sm:px-6">
+        <!-- Intro Header -->
+        <div className="mb-8 text-center sm:text-left">
+          <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 border border-blue-200 text-blue-700 text-xs font-semibold mb-3">
+            <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+            <span>신입사원 & 비전문 분야 회의 준비 특화</span>
+          </div>
+          <h1 class="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
+            회의 자료 맞춤 분석 및 사전 준비
+          </h1>
+          <p class="mt-2 text-sm sm:text-base text-slate-600 leading-relaxed">
+            어려운 회의 자료를 넣으면 <strong class="text-slate-800">전문용어 풀이</strong>와
+            <strong class="text-slate-800">배경지식 핵심 요약</strong>을 내 눈높이에 맞춰 정리해 드립니다.
+          </p>
+        </div>
+
+        <!-- Sample Presets Picker -->
+        <div class="mt-6 mb-6 p-4 rounded-xl bg-slate-50/80 border border-slate-200">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+              <i data-lucide="book-open" class="w-3.5 h-3.5 text-blue-600"></i>
+              빠른 체험을 위한 실무 예시 회의 자료
+            </span>
+            <span class="text-[11px] text-slate-400">클릭 시 자동 입력</span>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5" id="preset-list-container">
+            <!-- Rendered via JS -->
+          </div>
+        </div>
+
+        <form id="form-analysis" class="space-y-6">
+          <!-- Material Title -->
+          <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+            <label for="input-title" class="block text-sm font-bold text-slate-800 mb-2">
+              회의 자료명 <span class="text-red-500">*</span>
+            </label>
+            <input
+              id="input-title"
+              type="text"
+              required
+              placeholder="예: 2026 Q4 클라우드 인프라 아키텍처 개편 검토 회의"
+              class="w-full px-4 py-2.5 text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition-colors"
+            />
+          </div>
+
+          <!-- Explanation Level Cards (Must 1) -->
+          <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+            <div class="mb-3">
+              <h2 class="text-sm font-bold text-slate-800">
+                설명 수준 선택 <span class="text-red-500">*</span>
+              </h2>
+              <p class="text-xs text-slate-500 mt-0.5">
+                동일한 자료라도 선택한 수준에 따라 어조와 비유, 기술적 깊이가 완전히 달라집니다.
+              </p>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+              <!-- Beginner Mode -->
+              <div
+                id="card-level-beginner"
+                class="level-card cursor-pointer p-4 rounded-xl border-2 border-blue-600 bg-blue-50/40 shadow-sm ring-1 ring-blue-600 transition-all relative"
+              >
+                <div class="flex items-start justify-between">
+                  <div class="flex items-center gap-2">
+                    <div class="w-8 h-8 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-sm">
+                      🌱
+                    </div>
+                    <div>
+                      <h3 class="text-sm font-bold text-slate-900">입문자 모드</h3>
+                      <span class="text-[11px] font-medium text-blue-700">신입사원 / 비전문가 추천</span>
+                    </div>
+                  </div>
+                  <div class="level-check w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center">
+                    <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                  </div>
+                </div>
+                <ul class="mt-3 space-y-1.5 text-xs text-slate-600">
+                  <li class="flex items-start gap-1.5">
+                    <span class="text-blue-500 font-bold">•</span>
+                    <span>배경지식이 전혀 없어도 이해할 수 있는 친절한 설명</span>
+                  </li>
+                  <li class="flex items-start gap-1.5">
+                    <span class="text-blue-500 font-bold">•</span>
+                    <span>일상 생활 속 비유와 구체적인 예시 활용</span>
+                  </li>
+                  <li class="flex items-start gap-1.5">
+                    <span class="text-blue-500 font-bold">•</span>
+                    <span>또 다른 난해한 전문용어 나열 지양</span>
+                  </li>
+                </ul>
+              </div>
+
+              <!-- Practitioner Mode -->
+              <div
+                id="card-level-practitioner"
+                class="level-card cursor-pointer p-4 rounded-xl border-2 border-slate-200 hover:border-slate-300 bg-white transition-all relative"
+              >
+                <div class="flex items-start justify-between">
+                  <div class="flex items-center gap-2">
+                    <div class="w-8 h-8 rounded-lg bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-sm">
+                      ⚡
+                    </div>
+                    <div>
+                      <h3 class="text-sm font-bold text-slate-900">실무자 모드</h3>
+                      <span class="text-[11px] font-medium text-indigo-700">실무 엔지니어 / PM 추천</span>
+                    </div>
+                  </div>
+                  <div class="level-check hidden w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center">
+                    <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                  </div>
+                </div>
+                <ul class="mt-3 space-y-1.5 text-xs text-slate-600">
+                  <li class="flex items-start gap-1.5">
+                    <span class="text-indigo-500 font-bold">•</span>
+                    <span>정확하고 엄밀한 기술적 정의와 아키텍처 스펙</span>
+                  </li>
+                  <li class="flex items-start gap-1.5">
+                    <span class="text-indigo-500 font-bold">•</span>
+                    <span>실제 업무 및 파이프라인에서 활용되는 맥락</span>
+                  </li>
+                  <li class="flex items-start gap-1.5">
+                    <span class="text-indigo-500 font-bold">•</span>
+                    <span>유사 개념과의 핵심 차이점 및 실무 주의사항</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <!-- Input Methods: File Upload vs Direct Text -->
+          <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+            <div class="flex items-center justify-between border-b border-slate-200 pb-3 mb-4">
+              <div class="flex items-center gap-2">
+                <button
+                  id="btn-subtab-file"
+                  type="button"
+                  class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 text-white shadow-sm transition-colors"
+                >
+                  <i data-lucide="upload-cloud" class="w-3.5 h-3.5"></i>
+                  <span>파일 업로드 (PDF, PPTX, DOCX)</span>
+                </button>
+                <button
+                  id="btn-subtab-text"
+                  type="button"
+                  class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+                >
+                  <i data-lucide="file-text" class="w-3.5 h-3.5"></i>
+                  <span>텍스트 직접 입력</span>
+                </button>
+              </div>
+              <span class="text-xs text-slate-400 hidden sm:inline">
+                드래그 앤 드롭 지원
+              </span>
+            </div>
+
+            <!-- Subtab 1: File Dropzone -->
+            <div id="subtab-file-pane" class="space-y-4">
+              <input
+                id="file-input-hidden"
+                type="file"
+                accept=".pdf,.pptx,.docx,.txt,.md,.markdown"
+                class="hidden"
+              />
+
+              <!-- Empty Dropzone -->
+              <div
+                id="dropzone"
+                class="border-2 border-dashed border-slate-300 hover:border-blue-500 bg-slate-50/50 hover:bg-slate-50 rounded-xl p-8 text-center cursor-pointer transition-all"
+              >
+                <div class="w-12 h-12 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center mx-auto mb-3">
+                  <i data-lucide="file-up" class="w-6 h-6"></i>
+                </div>
+                <p class="text-sm font-semibold text-slate-800">
+                  회의 자료 파일을 여기에 끌어다 놓거나 클릭하여 선택
+                </p>
+                <p class="text-xs text-slate-500 mt-1">
+                  지원 포맷: <span class="font-semibold text-slate-700">PDF, PPTX, DOCX, TXT, MD</span> (최대 30MB)
+                </p>
+                <div id="file-extract-spinner" class="hidden flex items-center justify-center gap-2 mt-4 text-xs text-blue-600 font-semibold">
+                  <i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i>
+                  <span>브라우저에서 문서 텍스트 추출 중...</span>
+                </div>
+              </div>
+
+              <!-- Uploaded File Card (Hidden by default) -->
+              <div id="uploaded-file-card" class="hidden p-4 rounded-xl border border-blue-200 bg-blue-50/30">
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-3">
+                    <div id="uploaded-file-badge" class="w-10 h-10 rounded-lg bg-blue-600 text-white flex items-center justify-center font-bold text-xs uppercase">
+                      FILE
+                    </div>
+                    <div>
+                      <p id="uploaded-file-name" class="text-sm font-bold text-slate-900 truncate max-w-xs sm:max-w-md">
+                        document.docx
+                      </p>
+                      <p id="uploaded-file-meta" class="text-xs text-slate-500">
+                        120 KB • 텍스트 추출 완료
+                      </p>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <button
+                      id="btn-reselect-file"
+                      type="button"
+                      class="text-xs px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-medium"
+                    >
+                      변경
+                    </button>
+                    <button
+                      id="btn-clear-file"
+                      type="button"
+                      class="p-1.5 rounded-lg hover:bg-red-50 text-slate-400 hover:text-red-600"
+                      title="파일 삭제"
+                    >
+                      <i data-lucide="x" class="w-4 h-4"></i>
+                    </button>
+                  </div>
+                </div>
+
+                <div id="uploaded-text-preview-box" class="mt-3 p-3 bg-white rounded-lg border border-slate-200 text-xs text-slate-600 max-h-32 overflow-y-auto leading-relaxed">
+                  <div class="font-semibold text-slate-700 mb-1 flex items-center justify-between">
+                    <span>추출된 텍스트 미리보기</span>
+                    <span id="uploaded-char-count">0 자</span>
+                  </div>
+                  <p id="uploaded-text-preview" class="line-clamp-4 whitespace-pre-line text-slate-500 font-mono"></p>
+                </div>
+              </div>
+
+              <div id="file-error-box" class="hidden p-3 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2">
+                <i data-lucide="alert-triangle" class="w-4 h-4 shrink-0"></i>
+                <span id="file-error-msg"></span>
+              </div>
+            </div>
+
+            <!-- Subtab 2: Direct Text Pane -->
+            <div id="subtab-text-pane" class="hidden space-y-2">
+              <div class="flex justify-between items-center text-xs text-slate-500">
+                <span>회의 안건, 공유된 아젠다, 슬랙 논의 내역, 발표 대본 등을 붙여넣으세요.</span>
+                <span id="text-char-count">0 자</span>
+              </div>
+              <textarea
+                id="textarea-rawtext"
+                rows="10"
+                placeholder="예시:
+[회의명] 클라우드 네이티브 아키텍처 전환 검토
+[논의 내용] 기존 모놀리식 환경에서 결제 및 주문 모듈을 MSA로 분리하고, 서비스 간 통신은 gRPC와 Istio 서비스 메시를 활용하기로 결정. Kafka를 통한 사가(Saga) 패턴 적용 및 멱등성 보장 방안 논의..."
+                class="w-full p-3.5 text-sm rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 font-mono transition-colors"
+              ></textarea>
+            </div>
+          </div>
+
+          <!-- Privacy & Security Notice Banner -->
+          <div class="p-4 rounded-xl bg-amber-50/70 border border-amber-200 flex items-start gap-3 text-xs text-amber-900 leading-relaxed">
+            <i data-lucide="alert-triangle" class="w-4 h-4 text-amber-600 shrink-0 mt-0.5"></i>
+            <div>
+              <strong class="font-bold">보안 및 개인정보 주의사항:</strong> 주민등록번호, 계좌번호, 개인 연락처 및 비공개 사내 기밀 정보가 포함되지 않도록 확인 후 입력해 주세요. 업로드된 원본 파일은 브라우저에서 분석 목적으로만 일시 처리되며 영구 저장되지 않습니다.
+            </div>
+          </div>
+
+          <!-- Submit Button -->
+          <div class="flex items-center justify-end gap-3 pt-2">
+            <button
+              id="btn-start-analyze"
+              type="submit"
+              class="w-full sm:w-auto px-7 py-3 rounded-xl font-bold text-sm text-white bg-blue-600 hover:bg-blue-700 active:scale-[0.99] shadow-md shadow-blue-500/25 transition-all flex items-center justify-center gap-2"
+            >
+              <i data-lucide="sparkles" class="w-4 h-4"></i>
+              <span>AI 맞춤 분석 시작</span>
+              <i data-lucide="arrow-right" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </form>
+      </section>
+
+      <!-- ========================================== -->
+      <!-- SCREEN 3: 분석 결과 (Result Screen)       -->
+      <!-- ========================================== -->
+      <section id="screen-result" class="hidden max-w-6xl mx-auto py-6 px-4 sm:px-6 lg:px-8 space-y-6">
+        <!-- Top Action Bar -->
+        <div class="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500 no-print">
+          <button
+            id="btn-back-history"
+            type="button"
+            class="inline-flex items-center gap-1.5 hover:text-slate-900 font-medium transition-colors"
+          >
+            <i data-lucide="arrow-left" class="w-3.5 h-3.5"></i>
+            <span>전체 분석 목록으로</span>
+          </button>
+
+          <div class="flex items-center gap-2">
+            <!-- Print Button -->
+            <button
+              id="btn-print"
+              type="button"
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-medium transition-colors"
+            >
+              <i data-lucide="printer" class="w-3.5 h-3.5"></i>
+              <span class="hidden sm:inline">인쇄 / PDF</span>
+            </button>
+
+            <!-- Copy Markdown -->
+            <button
+              id="btn-copy-markdown"
+              type="button"
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-medium transition-colors"
+            >
+              <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+              <span id="copy-markdown-text">마크다운 복사</span>
+            </button>
+
+            <!-- Sync to Sheets -->
+            <button
+              id="btn-sync-sheets-action"
+              type="button"
+              class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border bg-blue-600 text-white border-blue-600 hover:bg-blue-700 transition-all"
+            >
+              <i data-lucide="database" class="w-3.5 h-3.5"></i>
+              <span id="sync-sheets-btn-text">Google Sheets에 저장</span>
+            </button>
+
+            <!-- New Analysis -->
+            <button
+              id="btn-new-analysis"
+              type="button"
+              class="px-3 py-1.5 rounded-lg bg-slate-900 text-white font-medium hover:bg-slate-800 transition-colors"
+            >
+              + 새 분석
+            </button>
+          </div>
+        </div>
+
+        <!-- Material Header Banner -->
+        <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <div class="flex flex-wrap items-center gap-2 mb-2">
+                <span id="res-badge-level" class="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
+                  🌱 입문자 모드 (비유와 쉬운 예시)
+                </span>
+                <span id="res-badge-id" class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200 font-mono">
+                  MP-XXXX-XXXX
+                </span>
+                <span id="res-badge-inputtype" class="text-xs text-slate-400">
+                  입력 방식: 직접 입력
+                </span>
+              </div>
+
+              <h1 id="res-title" class="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight">
+                회의 자료명
+              </h1>
+
+              <div class="flex items-center gap-4 mt-2 text-xs text-slate-500">
+                <span class="flex items-center gap-1">
+                  <i data-lucide="calendar" class="w-3.5 h-3.5 text-slate-400"></i>
+                  <span id="res-date">2026-11-04</span>
+                </span>
+                <span>•</span>
+                <span id="res-terms-stat" class="text-blue-600 font-semibold">
+                  전문용어 0개 추출
+                </span>
+                <span>•</span>
+                <span id="res-discussions-stat" class="text-indigo-600 font-semibold">
+                  핵심 논의 0건
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Result Sub-Tabs -->
+          <div class="flex border-b border-slate-200 mt-6 -mb-6 overflow-x-auto no-print">
+            <button
+              id="res-tab-btn-summary"
+              type="button"
+              class="res-tab-btn flex items-center gap-2 px-5 py-3 text-sm font-bold border-b-2 border-blue-600 text-blue-600 whitespace-nowrap transition-colors"
+            >
+              <i data-lucide="file-text" class="w-4 h-4"></i>
+              <span>1. 회의 핵심 요약</span>
+            </button>
+
+            <button
+              id="res-tab-btn-background"
+              type="button"
+              class="res-tab-btn flex items-center gap-2 px-5 py-3 text-sm font-bold border-b-2 border-transparent text-slate-500 hover:text-slate-900 whitespace-nowrap transition-colors"
+            >
+              <i data-lucide="workflow" class="w-4 h-4"></i>
+              <span>2. 알아야 할 배경지식</span>
+            </button>
+
+            <button
+              id="res-tab-btn-terminology"
+              type="button"
+              class="res-tab-btn flex items-center gap-2 px-5 py-3 text-sm font-bold border-b-2 border-transparent text-slate-500 hover:text-slate-900 whitespace-nowrap transition-colors"
+            >
+              <i data-lucide="book-open" class="w-4 h-4"></i>
+              <span>3. 맞춤형 전문용어 사전</span>
+              <span id="res-terms-count-badge" class="px-1.5 py-0.2 rounded-full bg-blue-50 text-blue-700 text-xs font-bold border border-blue-200">0</span>
+            </button>
+
+            <button
+              id="res-tab-btn-qa"
+              type="button"
+              class="res-tab-btn flex items-center gap-2 px-5 py-3 text-sm font-bold border-b-2 border-transparent text-slate-500 hover:text-slate-900 whitespace-nowrap transition-colors"
+            >
+              <i data-lucide="help-circle" class="w-4 h-4"></i>
+              <span>4. 실전 예상 질의응답</span>
+              <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 font-medium">Should</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- TAB CONTENT 1: 회의 핵심 요약 -->
+        <div id="res-pane-summary" class="space-y-6">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-xs font-bold uppercase tracking-wider text-slate-400">회의 주제</span>
+                <span class="text-[11px] px-2 py-0.5 rounded bg-blue-50 text-blue-700 font-semibold border border-blue-200">Topic</span>
+              </div>
+              <p id="res-summary-topic" class="text-base font-bold text-slate-900 leading-snug"></p>
+            </div>
+
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+              <div class="flex items-center justify-between mb-2">
+                <span class="text-xs font-bold uppercase tracking-wider text-slate-400">회의 목적</span>
+                <span id="res-summary-purpose-badge" class="text-[11px] px-2 py-0.5 rounded font-semibold border"></span>
+              </div>
+              <p id="res-summary-purpose" class="text-sm leading-relaxed"></p>
+            </div>
+          </div>
+
+          <!-- Key Discussions -->
+          <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+            <div class="flex items-center justify-between">
+              <div>
+                <h3 class="text-base font-bold text-slate-900">주요 논의 사항 및 의사결정 내용</h3>
+                <p class="text-xs text-slate-500 mt-0.5">자료 원문에 기반한 사실과 핵심 의사결정 맥락을 정리했습니다.</p>
+              </div>
+              <span id="res-discussions-count-chip" class="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 text-slate-700"></span>
+            </div>
+            <div id="res-discussions-list" class="space-y-3.5"></div>
+          </div>
+
+          <!-- Key Points & Tech Concepts -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+              <h3 class="text-sm font-bold text-slate-900 mb-3 flex items-center gap-2">
+                <i data-lucide="sparkles" class="w-4 h-4 text-amber-500"></i>
+                이해해야 할 핵심 포인트
+              </h3>
+              <div id="res-keypoints-list" class="space-y-2.5"></div>
+            </div>
+
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+              <h3 class="text-sm font-bold text-slate-900 mb-3 flex items-center gap-2">
+                <i data-lucide="layers" class="w-4 h-4 text-blue-600"></i>
+                회의에 등장한 중요 기술·업무 개념
+              </h3>
+              <div id="res-techconcepts-list" class="space-y-2"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB CONTENT 2: 알아야 할 배경지식 -->
+        <div id="res-pane-background" class="hidden space-y-6">
+          <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+            <h3 class="text-base font-bold text-slate-900 mb-1 flex items-center gap-2">
+              <i data-lucide="book-open" class="w-4 h-4 text-blue-600"></i>
+              회의 내용을 이해하기 위해 알아야 하는 기초 개념
+            </h3>
+            <p id="res-bg-intro-desc" class="text-xs text-slate-500 mb-4"></p>
+            <div id="res-basicconcepts-list" class="grid grid-cols-1 md:grid-cols-2 gap-3.5"></div>
+          </div>
+
+          <!-- Work Processes -->
+          <div class="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+            <h3 class="text-base font-bold text-slate-900 mb-1 flex items-center gap-2">
+              <i data-lucide="workflow" class="w-4 h-4 text-indigo-600"></i>
+              관련 업무 프로세스 및 단계별 흐름
+            </h3>
+            <p class="text-xs text-slate-500 mb-4">이번 회의의 안건이 실제 업무와 개발 라이프사이클의 어느 단계에 위치하는지 보여줍니다.</p>
+            <div id="res-workprocesses-list" class="space-y-3"></div>
+          </div>
+
+          <!-- Tech Relationships & Prep Checklist -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+              <h3 class="text-sm font-bold text-slate-900 mb-3 flex items-center gap-2">
+                <i data-lucide="layers" class="w-4 h-4 text-emerald-600"></i>
+                핵심 기술 및 개념 간의 관계도
+              </h3>
+              <div id="res-techrelationships-list" class="space-y-2.5"></div>
+            </div>
+
+            <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+              <h3 class="text-sm font-bold text-slate-900 mb-3 flex items-center gap-2">
+                <i data-lucide="check-circle-2" class="w-4 h-4 text-blue-600"></i>
+                회의 전 미리 알아두면 좋은 체크리스트
+              </h3>
+              <div id="res-prepchecklist-list" class="space-y-2"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB CONTENT 3: 맞춤형 전문용어 사전 -->
+        <div id="res-pane-terminology" class="hidden space-y-6">
+          <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div class="relative w-full sm:w-80">
+              <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-2.5"></i>
+              <input
+                id="input-filter-term"
+                type="text"
+                placeholder="전문용어, 정의 검색..."
+                class="w-full pl-9 pr-3 py-1.5 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+              />
+            </div>
+            <div class="flex items-center gap-2 text-xs text-slate-500 w-full sm:w-auto justify-end">
+              <span>총 <strong id="res-term-count-num" class="text-slate-900">0</strong>개 용어 추출</span>
+              <span>•</span>
+              <span id="res-term-mode-note" class="text-blue-600 font-semibold">입문자 맞춤형 비유 적용</span>
+            </div>
+          </div>
+
+          <div id="res-terms-grid" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+        </div>
+
+        <!-- TAB CONTENT 4: 예상 질의응답 -->
+        <div id="res-pane-qa" class="hidden bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+          <div>
+            <h3 class="text-base font-bold text-slate-900 flex items-center gap-2">
+              <i data-lucide="help-circle" class="w-4 h-4 text-blue-600"></i>
+              회의 중 나올 수 있는 예상 질문 및 모범 답변
+            </h3>
+            <p class="text-xs text-slate-500 mt-0.5">
+              자료에 명시된 근거와 실무적 관점에서의 추론 답변을 구분하여 회의 발언에 자신감을 더합니다.
+            </p>
+          </div>
+          <div id="res-qa-list" class="space-y-3.5"></div>
+        </div>
+      </section>
+
+      <!-- ========================================== -->
+      <!-- SCREEN 2: 분석 목록 (History Screen)      -->
+      <!-- ========================================== -->
+      <section id="screen-history" class="hidden max-w-6xl mx-auto py-8 px-4 sm:px-6 lg:px-8 space-y-6">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h1 class="text-2xl font-extrabold text-slate-900 tracking-tight">
+              회의 자료 분석 기록
+            </h1>
+            <p class="text-xs sm:text-sm text-slate-500 mt-1">
+              이전에 분석했던 회의 안건과 맞춤형 전문용어 목록을 언제든 다시 열람할 수 있습니다.
+            </p>
+          </div>
+          <button
+            id="btn-history-new-analysis"
+            type="button"
+            class="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-sm shadow-blue-500/20 transition-all self-start sm:self-auto"
+          >
+            <i data-lucide="sparkles" class="w-4 h-4"></i>
+            <span>새 회의 자료 분석하기</span>
+          </button>
+        </div>
+
+        <!-- Search & Filter Bar -->
+        <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div class="relative w-full sm:w-96">
+            <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-2.5"></i>
+            <input
+              id="input-history-search"
+              type="text"
+              placeholder="자료명, 주제, 전문용어 검색..."
+              class="w-full pl-9 pr-3 py-1.5 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors"
+            />
+          </div>
+
+          <div class="flex items-center gap-1.5 w-full sm:w-auto justify-end">
+            <button
+              id="filter-history-all"
+              type="button"
+              class="history-filter-btn px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-900 text-white transition-colors"
+            >
+              전체 (<span id="history-total-count">0</span>)
+            </button>
+            <button
+              id="filter-history-beginner"
+              type="button"
+              class="history-filter-btn px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100 transition-colors"
+            >
+              입문자 모드
+            </button>
+            <button
+              id="filter-history-practitioner"
+              type="button"
+              class="history-filter-btn px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100 transition-colors"
+            >
+              실무자 모드
+            </button>
+          </div>
+        </div>
+
+        <!-- History Cards List -->
+        <div id="history-cards-container" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+
+        <!-- Empty History View -->
+        <div id="history-empty-view" class="hidden bg-white rounded-2xl border border-slate-200 p-12 text-center shadow-sm">
+          <i data-lucide="book-open" class="w-10 h-10 text-slate-300 mx-auto mb-3"></i>
+          <h3 class="text-base font-bold text-slate-800">아직 저장된 분석 기록이 없습니다.</h3>
+          <p class="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
+            어려운 회의 자료를 업로드하여 첫 번째 맞춤형 분석을 시작해 보세요!
+          </p>
+          <button
+            id="btn-empty-start-analysis"
+            type="button"
+            class="mt-5 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-sm transition-colors"
+          >
+            <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+            <span>회의 자료 분석 시작하기</span>
+          </button>
+        </div>
+      </section>
+    </main>
+
+    <!-- ========================================== -->
+    <!-- MODAL 1: 개인 전문용어 보관함 (Bookmarks) -->
+    <!-- ========================================== -->
+    <div id="modal-bookmarks" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col overflow-hidden">
+        <div class="p-5 border-b border-slate-200 flex items-center justify-between bg-slate-50/50">
+          <div class="flex items-center gap-2.5">
+            <div class="w-8 h-8 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center">
+              <i data-lucide="bookmark-check" class="w-4 h-4 text-amber-600"></i>
+            </div>
+            <div>
+              <h3 class="font-bold text-base text-slate-900">개인 전문용어 보관함</h3>
+              <p class="text-xs text-slate-500">
+                각 회의 자료에서 북마크한 나만의 핵심 전문용어 모음 (<span id="modal-bookmarks-total">0</span>개)
+              </p>
+            </div>
+          </div>
+          <button id="btn-close-bookmarks" type="button" class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition-colors">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+
+        <div class="p-4 border-b border-slate-100 bg-white">
+          <div class="relative">
+            <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-2.5"></i>
+            <input
+              id="input-search-bookmarks"
+              type="text"
+              placeholder="북마크한 용어, 정의, 회의명 검색..."
+              class="w-full pl-9 pr-3 py-1.5 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
+            />
+          </div>
+        </div>
+
+        <div id="modal-bookmarks-list" class="p-5 overflow-y-auto space-y-3.5 flex-1 bg-slate-50/30"></div>
+      </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- MODAL 2: Google Sheets & Apps Script 설정 -->
+    <!-- ========================================== -->
+    <div id="modal-sheets" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+      <div class="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden">
+        <div class="p-5 border-b border-slate-200 flex items-center justify-between bg-slate-50/50">
+          <div class="flex items-center gap-2.5">
+            <div class="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
+              <i data-lucide="database" class="w-5 h-5"></i>
+            </div>
+            <div>
+              <h3 class="font-bold text-base text-slate-900">Google Sheets & Apps Script 연동 가이드</h3>
+              <p class="text-xs text-slate-500">2개 시트 구조(분석 기록 + 전문용어)를 클라우드 스프레드시트에 영구 저장합니다.</p>
+            </div>
+          </div>
+          <button id="btn-close-sheets" type="button" class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 transition-colors">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+
+        <div class="p-6 overflow-y-auto space-y-6 flex-1 text-slate-700">
+          <!-- 2-Sheet Architecture Overview -->
+          <div class="bg-blue-50/50 p-4 rounded-xl border border-blue-200/80">
+            <h4 class="text-xs font-bold text-blue-900 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+              <i data-lucide="table" class="w-4 h-4 text-blue-700"></i>
+              자동 생성되는 Google Sheets 2개 시트 데이터 구조
+            </h4>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div class="bg-white p-3 rounded-lg border border-blue-100 shadow-xs">
+                <span class="font-bold text-slate-900 block mb-1">1. [분석 기록] 시트</span>
+                <p class="text-slate-500 text-[11px] leading-tight">
+                  분석ID, 분석일시, 자료명, 입력방식, 설명수준, 핵심요약, 배경지식
+                </p>
+              </div>
+              <div class="bg-white p-3 rounded-lg border border-blue-100 shadow-xs">
+                <span class="font-bold text-slate-900 block mb-1">2. [전문용어] 시트</span>
+                <p class="text-slate-500 text-[11px] leading-tight">
+                  용어ID, 분석ID, 전문용어, 맞춤형 설명, 실무 활용 사례, 북마크
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <!-- 5 Steps Guide -->
+          <div class="space-y-3">
+            <h4 class="text-xs font-bold text-slate-900 uppercase tracking-wider">간단한 5단계 연동 절차</h4>
+            <div class="space-y-2" id="modal-guide-steps-container"></div>
+
+            <!-- Free Cost Notice -->
+            <div class="p-3.5 rounded-xl bg-emerald-50/80 border border-emerald-200 text-xs text-emerald-950 flex items-start gap-2.5">
+              <i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-600 shrink-0 mt-0.5"></i>
+              <div>
+                <strong class="font-bold text-emerald-900 block mb-0.5">
+                  비용 발생 여부 안내: 100% 완전 무료 (0원)
+                </strong>
+                <p class="text-[11px] text-emerald-800 leading-relaxed">
+                  Google Apps Script는 신용카드 등록이 필요 없는 <strong>완전 무료 서비스</strong>입니다.
+                  배포 시 [모든 사용자(Anyone)]를 선택하더라도 <strong>비용은 1원도 청구되지 않습니다.</strong>
+                  Google의 일일 무료 쿼터(하루 수만 회 실행 가능)로 동작하며, 한도를 넘더라도 일시 대기 상태가 될 뿐 요금이 부과되지 않습니다.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Apps Script Code Box -->
+          <div class="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-3">
+            <div class="flex items-center justify-between">
+              <div>
+                <span class="text-xs font-bold text-slate-900 block">Google Apps Script 배포 코드</span>
+                <span class="text-[11px] text-slate-500">Apps Script 편집기(Code.gs)에 복사하여 붙여넣으세요.</span>
+              </div>
+              <button
+                id="btn-copy-gas-code"
+                type="button"
+                class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-sm transition-colors"
+              >
+                <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                <span id="gas-copy-btn-text">Apps Script 코드 복사</span>
+              </button>
+            </div>
+            <pre id="gas-code-preview" class="text-[10px] font-mono bg-slate-900 text-slate-200 p-3 rounded-lg max-h-36 overflow-y-auto leading-relaxed border border-slate-800"></pre>
+          </div>
+
+          <!-- Web App URL & Connection Test -->
+          <div class="p-4 rounded-xl border border-slate-200 bg-white space-y-4">
+            <div>
+              <label for="input-gas-url" class="block text-xs font-bold text-slate-900 mb-1">
+                배포된 웹 앱 URL (Web App URL) <span class="text-red-500">*</span>
+              </label>
+              <div class="flex gap-2">
+                <input
+                  id="input-gas-url"
+                  type="url"
+                  placeholder="https://script.google.com/macros/s/AKfycb.../exec"
+                  class="flex-1 px-3.5 py-2 text-xs rounded-xl border border-slate-300 font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-600"
+                />
+                <button
+                  id="btn-test-gas-connection"
+                  type="button"
+                  class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold flex items-center gap-1.5 transition-colors"
+                >
+                  <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+                  <span>연결 테스트</span>
+                </button>
+              </div>
+              <p class="text-[11px] text-slate-400 mt-1">
+                Apps Script 배포 완료 시 제공되는 URL(마지막이 <code class="font-mono">/exec</code>로 끝남)을 입력합니다.
+              </p>
+            </div>
+
+            <div id="gas-test-result-box" class="hidden p-3 rounded-xl border text-xs flex items-start gap-2.5">
+              <span id="gas-test-icon"></span>
+              <div>
+                <div id="gas-test-msg" class="font-bold"></div>
+                <div id="gas-test-submsg" class="mt-1 text-[11px]"></div>
+              </div>
+            </div>
+
+            <!-- Auto sync checkbox -->
+            <div class="flex items-center gap-2 pt-1">
+              <input id="checkbox-auto-sync" type="checkbox" checked class="w-4 h-4 rounded text-blue-600 focus:ring-blue-500 border-slate-300" />
+              <label for="checkbox-auto-sync" class="text-xs font-medium text-slate-700 cursor-pointer">
+                새 회의 분석 완료 시 자동으로 Google Sheets에 저장하기
+              </label>
+            </div>
+
+            <!-- Bulk sync button -->
+            <div id="box-bulk-sync" class="hidden pt-3 border-t border-slate-100 flex items-center justify-between">
+              <div>
+                <span class="text-xs font-semibold text-slate-800 block">기존 분석 기록 일괄 전송</span>
+                <span class="text-[11px] text-slate-400">현재 보관 중인 모든 분석 기록을 시트로 전송합니다.</span>
+              </div>
+              <button
+                id="btn-sync-all-records"
+                type="button"
+                class="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center gap-1.5 transition-colors"
+              >
+                <i data-lucide="upload" class="w-3.5 h-3.5"></i>
+                <span>전체 동기화</span>
+              </button>
+            </div>
+            <div id="bulk-sync-status-text" class="hidden text-xs font-medium text-blue-700 bg-blue-50 p-2.5 rounded-lg border border-blue-200"></div>
+          </div>
+        </div>
+
+        <div class="p-4 border-t border-slate-200 flex items-center justify-between bg-slate-50/50">
+          <span class="text-[11px] text-slate-400">
+            * 스프레드시트 URL이 없어도 모든 분석 및 북마크는 로컬 브라우저에 즉시 안전 보관됩니다.
+          </span>
+          <div class="flex items-center gap-2">
+            <button id="btn-cancel-sheets-modal" type="button" class="px-4 py-2 rounded-xl text-xs font-medium text-slate-600 hover:bg-slate-200/60 transition-colors">
+              닫기
+            </button>
+            <button id="btn-save-sheets-settings" type="button" class="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-sm transition-colors">
+              설정 저장
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast Notification Container -->
+    <div id="toast-container" class="fixed bottom-5 right-5 z-50"></div>
+
+    <!-- Main JavaScript file (Pure Vanilla ES6+) -->
+    <script src="script.js"></script>
+  </body>
+</html>

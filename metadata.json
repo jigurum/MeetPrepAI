@@ -1,0 +1,6 @@
+{
+  "name": "MeetPrep AI - 회의 준비 지원",
+  "description": "회의 자료에 포함된 전문용어와 배경지식을 입문자·실무자 맞춤형으로 분석하고 Google Sheets에 동기화하는 회의 준비 지원 서비스",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
