@@ -2464,6 +2464,42 @@ document.addEventListener('DOMContentLoaded', () => {
     showToast('Google Sheets 설정이 저장되었습니다.', 'success');
   });
 
+  // 1-Click Download index.html button
+  const btnDownload = document.getElementById('btn-download-html');
+  if (btnDownload) {
+    btnDownload.addEventListener('click', () => {
+      fetch('/api/download-index')
+        .then((res) => {
+          if (!res.ok) return fetch('index.html');
+          return res;
+        })
+        .then((res) => res.blob())
+        .then((blob) => {
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'index.html';
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+          showToast('index.html 파일이 내 컴퓨터에 다운로드되었습니다!', 'success');
+        })
+        .catch(() => {
+          const html = '<!doctype html>\n' + document.documentElement.outerHTML;
+          const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'index.html';
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          showToast('index.html 파일이 다운로드되었습니다!', 'success');
+        });
+    });
+  }
+
   // Initial screen setup
   switchScreen('input');
 });

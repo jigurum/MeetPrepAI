@@ -19,6 +19,14 @@ const PORT = Number(process.env.PORT) || 3000;
 app.use(express.json({ limit: '40mb' }));
 app.use(express.urlencoded({ extended: true, limit: '40mb' }));
 
+// Route to easily download index.html
+app.get('/api/download-index', (_req: Request, res: Response) => {
+  res.download(path.resolve(__dirname, 'index.html'), 'index.html');
+});
+app.get('/index.html', (_req: Request, res: Response) => {
+  res.sendFile(path.resolve(__dirname, 'index.html'));
+});
+
 // Initialize Gemini client strictly as per skill guidelines
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY,
